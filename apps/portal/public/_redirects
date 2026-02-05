@@ -1,1 +1,12 @@
-/* / 200
+/login /index.html 200
+/invite /index.html 200
+/engagements/* /index.html 200
+/protocol /index.html 200
+/outputs /index.html 200
+/deliverables /index.html 200
+/secure-channel /index.html 200
+/settlement /index.html 200
+/billing /index.html 200
+/ops /index.html 200
+/ops/* /index.html 200
+/contracts /index.html 200
