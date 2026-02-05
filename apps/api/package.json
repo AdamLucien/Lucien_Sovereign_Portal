@@ -1,0 +1,26 @@
+{
+  "name": "@lucien/api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "echo \"skip api build\"",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "lint": "eslint . --ext .ts"
+  },
+  "dependencies": {
+    "hono": "^4.6.12",
+    "jose": "^5.2.4",
+    "mimetext": "^3.0.8"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250205.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "typescript": "^5.4.5",
+    "wrangler": "^4.33.2"
+  }
+}

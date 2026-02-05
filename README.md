@@ -108,6 +108,52 @@ curl -i -b /tmp/lucien.cookie \
 pnpm build
 ```
 
+## Cloudflare Deploy (Variant B)
+
+Frontend (portal) deploys to Cloudflare Pages. API runs as a Cloudflare Worker routed to
+`https://portal.lucien.technology/api/*`.
+
+### 1) Create D1 database
+
+```bash
+npx wrangler d1 create lucien-portal
+```
+
+Update `apps/api/wrangler.jsonc` with the returned `database_id`.
+
+### 2) Apply migrations
+
+```bash
+cd apps/api
+npx wrangler d1 migrations apply lucien-portal --remote
+```
+
+### 3) Set secrets
+
+```bash
+cd apps/api
+npx wrangler secret put INVITE_API_SECRET
+npx wrangler secret put LUCIEN_JWT_SECRET
+```
+
+Optional:
+
+- `INVITE_BASE_URL` (defaults to `PORTAL_BASE_URL`)
+- `INVITE_EMAIL_FROM` (defaults to `adam.karl.lucien@lucien.technology`)
+- `ERP_BASE_URL`, `ERP_API_KEY`, `ERP_API_SECRET`, `LUCIEN_TIER_FIELD`
+
+### 4) Deploy API worker
+
+```bash
+cd apps/api
+npx wrangler deploy
+```
+
+### 5) Deploy portal (Pages)
+
+Use Pages Git integration for `apps/portal` (build command: `pnpm --filter @lucien/portal build`,
+output: `apps/portal/dist`).
+
 ## Smoke Tests
 
 1. Dev login:
@@ -142,4 +188,5 @@ pnpm lint
 ## Proměnné prostředí
 
 - `apps/bff/.env.example`
+- `apps/api/wrangler.jsonc` (Workers env + secrets)
 - `apps/portal/.env.example`

@@ -1,0 +1,29 @@
+{
+  "name": "lucien-portal-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-05",
+  "routes": [
+    {
+      "pattern": "portal.lucien.technology/api/*",
+      "zone_name": "lucien.technology"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "lucien-portal",
+      "database_id": "REPLACE_WITH_D1_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["adam.karl.lucien@lucien.technology"]
+    }
+  ],
+  "vars": {
+    "PORTAL_BASE_URL": "https://portal.lucien.technology",
+    "INVITE_EMAIL_FROM": "adam.karl.lucien@lucien.technology"
+  }
+}

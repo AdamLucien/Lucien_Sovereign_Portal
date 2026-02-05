@@ -5,6 +5,7 @@ dist/
 .cache/
 coverage/
 *.log
+.wrangler/
 
 .env
 .env.*
