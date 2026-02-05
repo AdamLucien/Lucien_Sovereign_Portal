@@ -33,6 +33,10 @@ export default function BillingPage() {
   const [data, setData] = useState<BillingResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const paymentUrl =
+    data?.paymentUrl ??
+    data?.invoices.find((invoice) => invoice.status !== 'paid')?.paymentUrl ??
+    null;
 
   useEffect(() => {
     if (!engagementId) return;
@@ -84,6 +88,21 @@ export default function BillingPage() {
         <p className={`mt-3 text-xs uppercase tracking-widest ${text.muted}`}>
           {data?.note ?? 'Invoices reflect ERP Sales Invoice entries.'}
         </p>
+        {data && data.outstandingTotal > 0 ? (
+          <div className="mt-6 flex flex-wrap items-center gap-4">
+            <span className="text-[10px] uppercase tracking-widest text-amber-200">
+              Payment required to unlock the portal
+            </span>
+            {paymentUrl ? (
+              <a
+                href={paymentUrl}
+                className="border border-amber-400/60 px-4 py-2 text-[10px] uppercase tracking-widest text-amber-100 transition hover:border-amber-300 hover:text-amber-50"
+              >
+                Pay now
+              </a>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className={`${surface.panel} p-8 space-y-4`}>
@@ -103,6 +122,14 @@ export default function BillingPage() {
               <span className="text-sm font-semibold uppercase tracking-widest text-gray-200">
                 {invoice.amount.toFixed(2)} {invoice.currency}
               </span>
+              {invoice.paymentUrl && invoice.status !== 'paid' ? (
+                <a
+                  href={invoice.paymentUrl}
+                  className="border border-amber-400/50 px-3 py-1 text-[9px] uppercase tracking-widest text-amber-200 transition hover:border-amber-300 hover:text-amber-100"
+                >
+                  Pay
+                </a>
+              ) : null}
               <span
                 className={`border px-3 py-1 text-[9px] uppercase tracking-widest ${statusClasses(
                   invoice.status,

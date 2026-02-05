@@ -250,11 +250,13 @@ export type BillingInvoice = {
   status: 'paid' | 'unpaid' | 'overdue';
   outstanding: number;
   issuedAt: string | null;
+  paymentUrl?: string | null;
 };
 
 export type BillingResponse = {
   engagementId: string;
   outstandingTotal: number;
+  paymentUrl?: string | null;
   invoices: BillingInvoice[];
   note?: string;
 };

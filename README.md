@@ -142,6 +142,7 @@ Optional:
 - `INVITE_BASE_URL` (defaults to `PORTAL_BASE_URL`)
 - `INVITE_EMAIL_FROM` (defaults to `company@lucien.technology`)
 - `INVITE_EMAIL_FROM_NAME` (defaults to `Lucien Portal`)
+- `PAYMENT_LINK_TEMPLATE` (e.g. `https://lucien.technology/pay?invoice={invoiceId}&returnUrl={returnUrl}`)
 - `ERP_BASE_URL`, `ERP_API_KEY`, `ERP_API_SECRET`, `LUCIEN_TIER_FIELD`
 
 ### 4) Deploy API worker

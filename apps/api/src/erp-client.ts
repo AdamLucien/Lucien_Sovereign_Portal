@@ -45,6 +45,7 @@ export interface SalesInvoiceRecord {
   currency: string;
   grand_total: number;
   posting_date?: string;
+  payment_url?: string;
 }
 
 export interface ProjectRecord {
@@ -328,6 +329,7 @@ export const createErpClient = (env: ERPEnv): ERPClient => {
             'currency',
             'grand_total',
             'posting_date',
+            'payment_url',
           ]),
           order_by: 'creation desc',
           limit_page_length: '1',
@@ -355,6 +357,7 @@ export const createErpClient = (env: ERPEnv): ERPClient => {
             'currency',
             'grand_total',
             'posting_date',
+            'payment_url',
           ]),
           order_by: 'creation desc',
           limit_page_length: '50',

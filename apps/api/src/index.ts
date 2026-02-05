@@ -80,6 +80,17 @@ const readSession = async (c: Parameters<typeof setCookie>[0], env: Env) => {
   }
 };
 
+const buildPaymentLink = (
+  template: string | undefined,
+  params: { invoiceId: string; engagementId: string; returnUrl: string },
+) => {
+  if (!template) return null;
+  return template
+    .replaceAll('{invoiceId}', encodeURIComponent(params.invoiceId))
+    .replaceAll('{engagementId}', encodeURIComponent(params.engagementId))
+    .replaceAll('{returnUrl}', encodeURIComponent(params.returnUrl));
+};
+
 app.use('/api/*', async (c, next) => {
   c.header('Cache-Control', 'no-store');
   c.header('X-Content-Type-Options', 'nosniff');
@@ -446,8 +457,8 @@ app.get('/api/engagements/:id/summary', async (c) => {
       protocol: { state: 'locked', reason: 'tier_intel_only' },
       outputs: { state: 'locked', reason: 'tier_intel_only' },
       secureChannel: { state: 'locked', reason: 'tier_intel_only' },
-      contracts: { state: 'locked', reason: 'tier_intel_only' },
-      billing: { state: 'locked', reason: 'tier_custom_only' },
+      contracts: { state: 'action', reason: 'nda_required' },
+      billing: { state: 'active' },
       settlement: { state: 'locked', reason: 'tier_intel_only' },
       opsConsole: { state: 'active' },
       requestBuilder: { state: 'action', reason: 'operator_queue' },
@@ -460,7 +471,7 @@ app.get('/api/engagements/:id/summary', async (c) => {
       outputs: { state: 'locked', reason: 'delivery' },
       secureChannel: { state: 'pending', reason: 'key_exchange' },
       contracts: { state: 'action', reason: 'nda_required' },
-      billing: { state: 'locked', reason: 'tier_custom_only' },
+      billing: { state: 'active' },
       settlement: { state: 'locked', reason: 'final_acceptance' },
       opsConsole: { state: 'active' },
       requestBuilder: { state: 'action', reason: 'operator_queue' },
@@ -622,6 +633,28 @@ app.get('/api/engagements/:id/summary', async (c) => {
     if (ndaSigned === false) {
       modules.contracts.state = 'action';
       modules.contracts.reason = 'nda_required';
+    }
+
+    const billingPaid =
+      latestInvoice && typeof latestInvoice.outstanding_amount === 'number'
+        ? latestInvoice.outstanding_amount <= 0
+        : false;
+
+    if (session!.role === 'CLIENT' && !billingPaid) {
+      MODULE_ORDER.forEach((key) => {
+        if (key === 'billing' || key === 'contracts') return;
+        if (modules[key].state === 'not_wired') return;
+        modules[key].state = 'locked';
+        modules[key].reason = 'billing_required';
+      });
+      if (modules.billing.state !== 'not_wired') {
+        modules.billing.state = 'action';
+        modules.billing.reason = 'payment_required';
+      }
+      if (modules.contracts.state === 'locked') {
+        modules.contracts.state = 'action';
+        modules.contracts.reason = modules.contracts.reason ?? 'nda_required';
+      }
     }
 
     return c.json({
@@ -1060,25 +1093,54 @@ app.get('/api/engagements/:id/billing', async (c) => {
     return respondError(c, errorResponse(403, 'forbidden', 'Engagement access denied.'));
   }
   const erpClient = createErpClient(c.env);
+  const origin = new URL(c.req.url).origin;
+  const returnUrl = `${c.env.PORTAL_BASE_URL?.trim() || origin}/billing`;
+  const paymentTemplate = c.env.PAYMENT_LINK_TEMPLATE?.trim();
 
   try {
     const invoices = await erpClient.fetchInvoicesByProject(engagementId);
     if (invoices === null) {
       return c.json({
         engagementId,
-        wired: false,
-        message: 'Billing doctype not wired.',
-        items: [],
+        outstandingTotal: 0,
+        invoices: [],
+        note: 'Billing doctype not wired.',
       });
     }
-    const items = invoices.map((invoice) => ({
-      id: invoice.name,
-      amount: invoice.grand_total,
-      currency: invoice.currency,
-      dueDate: invoice.due_date ?? null,
-      status: invoice.outstanding_amount <= 0 ? 'paid' : 'unpaid',
-    }));
-    return c.json({ engagementId, wired: true, items });
+    const now = Date.now();
+    const items = invoices.map((invoice) => {
+      const dueAt = invoice.due_date ? Date.parse(invoice.due_date) : null;
+      const outstanding = invoice.outstanding_amount ?? 0;
+      const isPaid = outstanding <= 0;
+      const isOverdue = !isPaid && dueAt !== null && dueAt < now;
+      const paymentUrl =
+        invoice.payment_url ??
+        buildPaymentLink(paymentTemplate, {
+          invoiceId: invoice.name,
+          engagementId,
+          returnUrl,
+        });
+      return {
+        id: invoice.name,
+        amount: invoice.grand_total,
+        currency: invoice.currency,
+        dueDate: invoice.due_date ?? null,
+        status: isPaid ? 'paid' : isOverdue ? 'overdue' : 'unpaid',
+        outstanding,
+        issuedAt: invoice.posting_date ?? null,
+        paymentUrl,
+      };
+    });
+    const outstandingTotal = items.reduce((total, invoice) => total + invoice.outstanding, 0);
+    const primaryPaymentUrl =
+      items.find((invoice) => invoice.status !== 'paid')?.paymentUrl ?? null;
+    return c.json({
+      engagementId,
+      outstandingTotal,
+      paymentUrl: primaryPaymentUrl,
+      invoices: items,
+      note: 'Invoices reflect ERP Sales Invoice entries.',
+    });
   } catch (err) {
     if (isERPClientError(err)) {
       return respondError(c, errorResponse(500, 'erp_unavailable', 'ERP request failed.'));
