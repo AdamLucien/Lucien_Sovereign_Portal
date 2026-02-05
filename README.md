@@ -134,12 +134,14 @@ npx wrangler d1 migrations apply lucien-portal --remote
 cd apps/api
 npx wrangler secret put INVITE_API_SECRET
 npx wrangler secret put LUCIEN_JWT_SECRET
+npx wrangler secret put BREVO_API_KEY
 ```
 
 Optional:
 
 - `INVITE_BASE_URL` (defaults to `PORTAL_BASE_URL`)
-- `INVITE_EMAIL_FROM` (defaults to `adam.karl.lucien@lucien.technology`)
+- `INVITE_EMAIL_FROM` (defaults to `company@lucien.technology`)
+- `INVITE_EMAIL_FROM_NAME` (defaults to `Lucien Portal`)
 - `ERP_BASE_URL`, `ERP_API_KEY`, `ERP_API_SECRET`, `LUCIEN_TIER_FIELD`
 
 ### 4) Deploy API worker

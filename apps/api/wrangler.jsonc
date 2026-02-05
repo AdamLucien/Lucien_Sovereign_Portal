@@ -17,14 +17,9 @@
       "migrations_dir": "migrations"
     }
   ],
-  "send_email": [
-    {
-      "name": "EMAIL",
-      "allowed_sender_addresses": ["adam.karl.lucien@lucien.technology"]
-    }
-  ],
   "vars": {
     "PORTAL_BASE_URL": "https://portal.lucien.technology",
-    "INVITE_EMAIL_FROM": "adam.karl.lucien@lucien.technology"
+    "INVITE_EMAIL_FROM": "company@lucien.technology",
+    "INVITE_EMAIL_FROM_NAME": "Lucien Portal - System Notification"
   }
 }

@@ -6,6 +6,7 @@ dist/
 coverage/
 *.log
 .wrangler/
+.DS_Store
 
 .env
 .env.*

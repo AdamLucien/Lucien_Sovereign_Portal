@@ -11,8 +11,7 @@
   },
   "dependencies": {
     "hono": "^4.6.12",
-    "jose": "^5.2.4",
-    "mimetext": "^3.0.8"
+    "jose": "^5.2.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250205.0",

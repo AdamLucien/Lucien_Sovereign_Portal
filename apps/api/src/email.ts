@@ -1,6 +1,3 @@
-import { EmailMessage } from 'cloudflare:email';
-import { createMimeMessage } from 'mimetext';
-
 import type { Env } from './env';
 
 type InviteEmailPayload = {
@@ -13,11 +10,12 @@ type InviteEmailPayload = {
 };
 
 export const sendInviteEmail = async (env: Env, payload: InviteEmailPayload) => {
-  const sender = env.INVITE_EMAIL_FROM ?? 'adam.karl.lucien@lucien.technology';
-  const msg = createMimeMessage();
-  msg.setSender({ addr: sender });
-  msg.setRecipient(payload.to);
-  msg.setSubject('Lucien Portal Invite');
+  const apiKey = env.BREVO_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error('BREVO_API_KEY is not configured.');
+  }
+  const senderEmail = env.INVITE_EMAIL_FROM?.trim() ?? 'company@lucien.technology';
+  const senderName = env.INVITE_EMAIL_FROM_NAME?.trim() ?? 'Lucien Portal';
 
   const lines = [
     'You have been invited to the Lucien portal.',
@@ -35,10 +33,23 @@ export const sendInviteEmail = async (env: Env, payload: InviteEmailPayload) => 
     lines.push('', `Temporary password: ${payload.temporaryPassword}`);
   }
 
-  msg.addMessage({
-    contentType: 'text/plain',
-    data: lines.join('\n'),
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      'api-key': apiKey,
+    },
+    body: JSON.stringify({
+      sender: { email: senderEmail, name: senderName },
+      to: [{ email: payload.to }],
+      subject: 'Lucien Portal Invite',
+      textContent: lines.join('\n'),
+    }),
   });
 
-  await env.EMAIL.send(new EmailMessage(sender, payload.to, msg.asRaw()));
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Brevo send failed: ${response.status} ${details.slice(0, 500)}`);
+  }
 };
