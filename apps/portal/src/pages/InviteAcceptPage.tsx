@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 
-import { ApiResponseError } from '../lib/api';
-import { postInviteAccept } from '../lib/portal';
 import { label, surface, text } from '../styles/tokens';
 
 const formatError = (status?: number) => {
@@ -17,7 +15,6 @@ const formatError = (status?: number) => {
 };
 
 export default function InviteAcceptPage() {
-  const navigate = useNavigate();
   const location = useLocation();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,21 +29,8 @@ export default function InviteAcceptPage() {
     }
 
     setLoading(true);
-    postInviteAccept(token)
-      .then(() => {
-        navigate('/', { replace: true });
-      })
-      .catch((err: unknown) => {
-        if (err instanceof ApiResponseError) {
-          setError(formatError(err.status));
-        } else {
-          setError(formatError());
-        }
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, [location.search, navigate]);
+    window.location.replace(`/api/auth/invite/accept?token=${encodeURIComponent(token)}`);
+  }, [location.search]);
 
   return (
     <div className="mx-auto w-full max-w-[560px] px-6 pt-24">

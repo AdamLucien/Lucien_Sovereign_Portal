@@ -300,6 +300,33 @@ app.post('/api/auth/invite/accept', async (c) => {
   });
 });
 
+app.get('/api/auth/invite/accept', async (c) => {
+  const token = c.req.query('token')?.trim() ?? '';
+  if (!token) {
+    return c.redirect('/login', 302);
+  }
+
+  const result = await consumeInviteToken(c.env.DB, token);
+  if (!result) {
+    return c.redirect('/login', 302);
+  }
+
+  const { user } = result;
+  const { token: sessionToken, expiresIn } = await createSessionToken(
+    {
+      uid: user.email,
+      role: user.role as Role,
+      engagementIds: user.engagementIds,
+      vis: user.vis ?? null,
+    },
+    c.env.LUCIEN_JWT_SECRET,
+    SESSION_TTL,
+  );
+
+  attachSessionCookie(c, sessionToken, expiresIn);
+  return c.redirect('/', 302);
+});
+
 const parseScope = (engagementIds: string[]) => {
   if (engagementIds.includes('ALL')) return { all: true, ids: [] as string[] };
   return { all: false, ids: engagementIds };
