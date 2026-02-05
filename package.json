@@ -2,7 +2,7 @@
   "name": "lucien-sovereign-portal",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@9",
+  "packageManager": "pnpm@10.11.1",
   "scripts": {
     "dev": "pnpm -r --parallel --filter \"./apps/*\" dev",
     "build": "pnpm -r build",
