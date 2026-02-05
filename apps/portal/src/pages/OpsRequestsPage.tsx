@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import ModulePlaceholder from '../components/ModulePlaceholder';
 import { usePortalContext } from '../layout/PortalShell';
 import { ApiResponseError } from '../lib/api';
-import { fetchOpsRequests, type OpsRequestItem } from '../lib/portal';
+import { fetchOpsRequests, postOpsRequestAccept, type OpsRequestItem } from '../lib/portal';
 import { label, surface, text } from '../styles/tokens';
 
 const formatError = (status?: number) => {
@@ -21,6 +21,7 @@ export default function OpsRequestsPage() {
   const [items, setItems] = useState<OpsRequestItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!engagementId) return;
@@ -53,6 +54,26 @@ export default function OpsRequestsPage() {
     return <ModulePlaceholder title="REQUEST BUILDER" moduleKey="requestBuilder" />;
   }
 
+  const handleAccept = async (requestId: string) => {
+    if (!engagementId) return;
+    setUpdatingId(requestId);
+    setError(null);
+    try {
+      await postOpsRequestAccept(engagementId, requestId);
+      setItems((prev) =>
+        prev.map((item) => (item.id === requestId ? { ...item, status: 'accepted' } : item)),
+      );
+    } catch (err: unknown) {
+      if (err instanceof ApiResponseError) {
+        setError(formatError(err.status));
+      } else {
+        setError('Ops update failed.');
+      }
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className={`${surface.panel} p-8`}>
@@ -83,9 +104,21 @@ export default function OpsRequestsPage() {
                 {item.visibility.toUpperCase()} · {item.assignedTo}
               </p>
             </div>
-            <span className="border px-3 py-1 text-[9px] uppercase tracking-widest text-indigo-200">
-              {item.status.replace('_', ' ').toUpperCase()}
-            </span>
+            <div className="flex items-center gap-3">
+              {item.status !== 'accepted' ? (
+                <button
+                  type="button"
+                  onClick={() => handleAccept(item.id)}
+                  disabled={updatingId === item.id}
+                  className="border border-emerald-400/50 px-3 py-1 text-[9px] uppercase tracking-widest text-emerald-200 transition hover:border-emerald-300 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {updatingId === item.id ? 'Updating…' : 'Mark done'}
+                </button>
+              ) : null}
+              <span className="border px-3 py-1 text-[9px] uppercase tracking-widest text-indigo-200">
+                {item.status.replace('_', ' ').toUpperCase()}
+              </span>
+            </div>
           </div>
         ))}
         {!items.length && !loading ? (

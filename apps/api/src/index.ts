@@ -5,7 +5,12 @@ import { authenticateUser, createSessionToken, verifySessionToken } from './auth
 import { consumeInviteToken, createInvite } from './auth-store';
 import { sendInviteEmail } from './email';
 import { isValidEngagementId, normalizeEngagementIds } from './engagements';
-import { createErpClient, isERPClientError, isErpConfigured } from './erp-client';
+import {
+  createErpClient,
+  isERPClientError,
+  isErpConfigured,
+  type ContractRecord,
+} from './erp-client';
 import { errorPayload, parseJsonBody, type ErrorPayload } from './http';
 import { INTEL_TEMPLATES, type IntelField } from './intel-templates';
 
@@ -89,6 +94,33 @@ const buildPaymentLink = (
     .replaceAll('{invoiceId}', encodeURIComponent(params.invoiceId))
     .replaceAll('{engagementId}', encodeURIComponent(params.engagementId))
     .replaceAll('{returnUrl}', encodeURIComponent(params.returnUrl));
+};
+
+const normalizeText = (value?: string | null) => (value ?? '').trim().toLowerCase();
+
+const mapContractType = (
+  value?: string | null,
+): 'nda' | 'msa' | 'sow' | 'dpa' | 'change_requests' | null => {
+  const text = normalizeText(value);
+  if (!text) return null;
+  if (text.includes('nda')) return 'nda';
+  if (text.includes('msa')) return 'msa';
+  if (text.includes('sow') || text.includes('annex')) return 'sow';
+  if (text.includes('dpa')) return 'dpa';
+  if (text.includes('change')) return 'change_requests';
+  return null;
+};
+
+const mapContractStatus = (value?: string | null): 'signed' | 'pending' | 'action' => {
+  const text = normalizeText(value);
+  if (!text) return 'pending';
+  if (text.includes('signed') || text.includes('executed') || text.includes('active')) {
+    return 'signed';
+  }
+  if (text.includes('action') || text.includes('required')) {
+    return 'action';
+  }
+  return 'pending';
 };
 
 app.use('/api/*', async (c, next) => {
@@ -351,6 +383,50 @@ const requireSession = (c: Parameters<typeof setCookie>[0]) => {
   return { session };
 };
 
+const requireOperator = (session: LucienSession) => {
+  if (session.role !== 'OPERATOR') {
+    return errorResponse(403, 'forbidden', 'Operator access required.');
+  }
+  return null;
+};
+
+const requireClientGate = async (
+  c: Parameters<typeof setCookie>[0],
+  engagementId: string,
+  options: { billing?: boolean; nda?: boolean },
+) => {
+  const session = c.get('session') as LucienSession | undefined;
+  if (!session || session.role !== 'CLIENT') return null;
+  const erpClient = createErpClient(c.env);
+
+  if (options.billing) {
+    const latestInvoice = await erpClient.fetchLatestInvoice(engagementId);
+    const billingPaid =
+      latestInvoice && typeof latestInvoice.outstanding_amount === 'number'
+        ? latestInvoice.outstanding_amount <= 0
+        : false;
+    if (!billingPaid) {
+      return errorResponse(402, 'payment_required', 'Billing required before access.');
+    }
+  }
+
+  if (options.nda) {
+    const contracts = await erpClient.fetchContractsByProject(engagementId);
+    const ndaSigned = contracts
+      ? contracts.some((contract) => {
+          const type = mapContractType(contract.contract_type ?? contract.name);
+          if (type !== 'nda') return false;
+          return mapContractStatus(contract.status) === 'signed';
+        })
+      : false;
+    if (!ndaSigned) {
+      return errorResponse(403, 'nda_required', 'NDA must be signed before access.');
+    }
+  }
+
+  return null;
+};
+
 app.get('/api/engagements', async (c) => {
   const { session, error } = requireSession(c);
   if (error) return respondError(c, error);
@@ -401,7 +477,7 @@ app.get('/api/engagements/:id/summary', async (c) => {
   const erpClient = createErpClient(c.env);
 
   type EngagementStatus = 'ACTIVE' | 'PAUSED' | 'CLOSED';
-  type EngagementTier = 'INTEL_ONLY' | 'BLUEPRINT' | 'CUSTOM';
+  type EngagementTier = 'DIAGNOSIS' | 'ARCHITECT' | 'SOVEREIGN';
   type ModuleState = 'active' | 'pending' | 'locked' | 'action' | 'not_wired';
   type ModuleRole = 'operator_only';
 
@@ -452,7 +528,7 @@ app.get('/api/engagements/:id/summary', async (c) => {
   ]);
 
   const tierModuleDefaults: Record<EngagementTier, Record<ModuleKey, ModuleInfo>> = {
-    INTEL_ONLY: {
+    DIAGNOSIS: {
       intel: { state: 'active' },
       protocol: { state: 'locked', reason: 'tier_intel_only' },
       outputs: { state: 'locked', reason: 'tier_intel_only' },
@@ -465,7 +541,7 @@ app.get('/api/engagements/:id/summary', async (c) => {
       deliveryPipeline: { state: 'pending', reason: 'pipeline_init' },
       accessRoles: { state: 'locked', reason: 'operator_only' },
     },
-    BLUEPRINT: {
+    ARCHITECT: {
       intel: { state: 'active' },
       protocol: { state: 'pending', reason: 'kickoff' },
       outputs: { state: 'locked', reason: 'delivery' },
@@ -478,7 +554,7 @@ app.get('/api/engagements/:id/summary', async (c) => {
       deliveryPipeline: { state: 'pending', reason: 'pipeline_init' },
       accessRoles: { state: 'locked', reason: 'operator_only' },
     },
-    CUSTOM: {
+    SOVEREIGN: {
       intel: { state: 'active' },
       protocol: { state: 'active' },
       outputs: { state: 'active' },
@@ -508,35 +584,24 @@ app.get('/api/engagements/:id/summary', async (c) => {
     if (typeof raw !== 'string') return null;
     const normalized = raw.trim().toLowerCase();
     if (!normalized) return null;
-    if (normalized.includes('intel')) return 'INTEL_ONLY';
-    if (normalized.includes('blueprint')) return 'BLUEPRINT';
-    if (normalized.includes('custom')) return 'CUSTOM';
-    return null;
-  };
-
-  const normalize = (value?: string | null) => (value ?? '').trim().toLowerCase();
-  const mapContractType = (
-    value?: string | null,
-  ): 'nda' | 'msa' | 'sow' | 'dpa' | 'change_requests' | null => {
-    const text = normalize(value);
-    if (!text) return null;
-    if (text.includes('nda')) return 'nda';
-    if (text.includes('msa')) return 'msa';
-    if (text.includes('sow') || text.includes('annex')) return 'sow';
-    if (text.includes('dpa')) return 'dpa';
-    if (text.includes('change')) return 'change_requests';
-    return null;
-  };
-  const mapContractStatus = (value?: string | null): 'signed' | 'pending' | 'action' => {
-    const text = normalize(value);
-    if (!text) return 'pending';
-    if (text.includes('signed') || text.includes('executed') || text.includes('active')) {
-      return 'signed';
+    if (
+      normalized.includes('diagnosis') ||
+      normalized.includes('audit') ||
+      normalized.includes('intel')
+    ) {
+      return 'DIAGNOSIS';
     }
-    if (text.includes('action') || text.includes('required')) {
-      return 'action';
+    if (normalized.includes('architect') || normalized.includes('blueprint')) {
+      return 'ARCHITECT';
     }
-    return 'pending';
+    if (
+      normalized.includes('sovereign') ||
+      normalized.includes('total control') ||
+      normalized.includes('custom')
+    ) {
+      return 'SOVEREIGN';
+    }
+    return null;
   };
 
   const readModuleOverrides = (project: Record<string, unknown>) => {
@@ -552,6 +617,15 @@ app.get('/api/engagements/:id/summary', async (c) => {
       overrides[key] = { state: state as ModuleState, reason };
     });
     return overrides;
+  };
+
+  const isNdaSigned = (records: ContractRecord[] | null) => {
+    if (!records || !records.length) return false;
+    return records.some((contract) => {
+      const type = mapContractType(contract.contract_type ?? contract.name);
+      if (type !== 'nda') return false;
+      return mapContractStatus(contract.status) === 'signed';
+    });
   };
 
   try {
@@ -574,14 +648,7 @@ app.get('/api/engagements/:id/summary', async (c) => {
     if (contracts === null) {
       contractsWired = false;
     } else {
-      ndaSigned = false;
-      contracts.forEach((contract) => {
-        const type = mapContractType(contract.contract_type ?? contract.name);
-        if (type !== 'nda') return;
-        if (mapContractStatus(contract.status) === 'signed') {
-          ndaSigned = true;
-        }
-      });
+      ndaSigned = isNdaSigned(contracts);
     }
 
     const outputs = await erpClient.fetchOutputsByProject(engagementId);
@@ -655,6 +722,17 @@ app.get('/api/engagements/:id/summary', async (c) => {
         modules.contracts.state = 'action';
         modules.contracts.reason = modules.contracts.reason ?? 'nda_required';
       }
+    } else if (session!.role === 'CLIENT' && ndaSigned === false) {
+      MODULE_ORDER.forEach((key) => {
+        if (key === 'billing' || key === 'contracts') return;
+        if (modules[key].state === 'not_wired') return;
+        modules[key].state = 'locked';
+        modules[key].reason = 'nda_required';
+      });
+      if (modules.contracts.state === 'locked') {
+        modules.contracts.state = 'action';
+        modules.contracts.reason = 'nda_required';
+      }
     }
 
     return c.json({
@@ -680,6 +758,8 @@ app.get('/api/engagements/:id/intel', async (c) => {
   if (session!.role === 'CLIENT' && !scope.all && !scope.ids.includes(engagementId)) {
     return respondError(c, errorResponse(403, 'forbidden', 'Engagement access denied.'));
   }
+  const gate = await requireClientGate(c, engagementId, { billing: true, nda: true });
+  if (gate) return respondError(c, gate);
 
   const erpClient = createErpClient(c.env);
   const filterFieldsByRole = (fields: IntelField[], role: string | null) => {
@@ -742,6 +822,8 @@ app.post('/api/engagements/:id/intel/upload', async (c) => {
   if (session!.role === 'CLIENT' && !scope.all && !scope.ids.includes(engagementId)) {
     return respondError(c, errorResponse(403, 'forbidden', 'Engagement access denied.'));
   }
+  const gate = await requireClientGate(c, engagementId, { billing: true, nda: true });
+  if (gate) return respondError(c, gate);
 
   const contentType = c.req.header('content-type') ?? '';
   if (!contentType.toLowerCase().includes('multipart/form-data')) {
@@ -818,6 +900,8 @@ app.get('/api/engagements/:id/outputs', async (c) => {
   if (session!.role === 'CLIENT' && !scope.all && !scope.ids.includes(engagementId)) {
     return respondError(c, errorResponse(403, 'forbidden', 'Engagement access denied.'));
   }
+  const gate = await requireClientGate(c, engagementId, { billing: true, nda: true });
+  if (gate) return respondError(c, gate);
 
   const erpClient = createErpClient(c.env);
   const normalize = (value?: string | null) => (value ?? '').trim().toLowerCase();
@@ -954,6 +1038,8 @@ app.get('/api/engagements/:id/protocol', async (c) => {
   if (session!.role === 'CLIENT' && !scope.all && !scope.ids.includes(engagementId)) {
     return respondError(c, errorResponse(403, 'forbidden', 'Engagement access denied.'));
   }
+  const gate = await requireClientGate(c, engagementId, { billing: true, nda: true });
+  if (gate) return respondError(c, gate);
 
   const erpClient = createErpClient(c.env);
   type TimelineEntry = {
@@ -972,30 +1058,35 @@ app.get('/api/engagements/:id/protocol', async (c) => {
   };
   const buildTimeline = (startDate: string | null): TimelineEntry[] => {
     const baseline = startDate ? new Date(startDate) : new Date();
-    const second = new Date(baseline);
-    second.setDate(second.getDate() + 7);
-    const third = new Date(second);
-    third.setDate(third.getDate() + 14);
+    const endOfMonth = (date: Date) =>
+      new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
+    const month1 = endOfMonth(baseline);
+    const month2 = endOfMonth(
+      new Date(Date.UTC(month1.getUTCFullYear(), month1.getUTCMonth() + 1, 1)),
+    );
+    const month3 = endOfMonth(
+      new Date(Date.UTC(month2.getUTCFullYear(), month2.getUTCMonth() + 1, 1)),
+    );
     return [
       {
         id: 'kickoff',
-        label: 'Protocol kickoff',
+        label: 'Stabilization month 1',
         status: 'complete',
-        dueDate: baseline.toISOString(),
+        dueDate: month1.toISOString(),
         owner: 'operator',
       },
       {
         id: 'design',
-        label: 'Strategy design',
+        label: 'Stabilization month 2',
         status: 'in_progress',
-        dueDate: second.toISOString(),
+        dueDate: month2.toISOString(),
         owner: 'operator',
       },
       {
         id: 'handover',
-        label: 'Client validation',
+        label: 'Stabilization month 3',
         status: 'pending',
-        dueDate: third.toISOString(),
+        dueDate: month3.toISOString(),
         owner: 'client',
       },
     ];
@@ -1058,6 +1149,8 @@ app.get('/api/engagements/:id/settlement', async (c) => {
   if (session!.role === 'CLIENT' && !scope.all && !scope.ids.includes(engagementId)) {
     return respondError(c, errorResponse(403, 'forbidden', 'Engagement access denied.'));
   }
+  const gate = await requireClientGate(c, engagementId, { billing: true, nda: true });
+  if (gate) return respondError(c, gate);
   const erpClient = createErpClient(c.env);
 
   try {
@@ -1152,6 +1245,8 @@ app.get('/api/engagements/:id/billing', async (c) => {
 app.get('/api/engagements/:id/ops/requests', async (c) => {
   const { session, error } = requireSession(c);
   if (error) return respondError(c, error);
+  const operatorError = requireOperator(session!);
+  if (operatorError) return respondError(c, operatorError);
   const engagementId = c.req.param('id');
   const scope = parseScope(session!.engagementIds);
   if (session!.role === 'CLIENT' && !scope.all && !scope.ids.includes(engagementId)) {
@@ -1177,9 +1272,54 @@ app.get('/api/engagements/:id/ops/requests', async (c) => {
   }
 });
 
+app.post('/api/engagements/:id/ops/requests/:requestId/accept', async (c) => {
+  const { session, error } = requireSession(c);
+  if (error) return respondError(c, error);
+  const operatorError = requireOperator(session!);
+  if (operatorError) return respondError(c, operatorError);
+  const engagementId = c.req.param('id');
+  const requestId = c.req.param('requestId');
+  const scope = parseScope(session!.engagementIds);
+  if (session!.role === 'CLIENT' && !scope.all && !scope.ids.includes(engagementId)) {
+    return respondError(c, errorResponse(403, 'forbidden', 'Engagement access denied.'));
+  }
+  if (!/^REQ-[0-9A-Z-]+$/.test(requestId)) {
+    return respondError(c, errorResponse(400, 'invalid_request_id', 'Invalid requestId.'));
+  }
+
+  const erpClient = createErpClient(c.env);
+  try {
+    const clientRequest = await erpClient.fetchClientRequestById(requestId);
+    if (!clientRequest) {
+      return respondError(c, errorResponse(404, 'request_not_found', 'Request not found.'));
+    }
+    if (clientRequest.project !== engagementId) {
+      return respondError(c, errorResponse(403, 'forbidden', 'Engagement mismatch.'));
+    }
+
+    if (clientRequest.status !== 'accepted') {
+      await erpClient.updateClientRequestStatus(clientRequest.name, 'accepted');
+    }
+
+    return c.json({
+      ok: true,
+      requestId: clientRequest.name,
+      status: 'accepted',
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    if (isERPClientError(err)) {
+      return respondError(c, errorResponse(502, 'erp_unavailable', 'ERP request failed.'));
+    }
+    return respondError(c, errorResponse(500, 'server_error', 'Unexpected server error.'));
+  }
+});
+
 app.get('/api/engagements/:id/ops/access', async (c) => {
   const { session, error } = requireSession(c);
   if (error) return respondError(c, error);
+  const operatorError = requireOperator(session!);
+  if (operatorError) return respondError(c, operatorError);
   const engagementId = c.req.param('id');
   const scope = parseScope(session!.engagementIds);
   if (session!.role === 'CLIENT' && !scope.all && !scope.ids.includes(engagementId)) {
@@ -1204,6 +1344,8 @@ app.get('/api/engagements/:id/ops/access', async (c) => {
 app.get('/api/engagements/:id/ops/console', async (c) => {
   const { session, error } = requireSession(c);
   if (error) return respondError(c, error);
+  const operatorError = requireOperator(session!);
+  if (operatorError) return respondError(c, operatorError);
   const engagementId = c.req.param('id');
   const scope = parseScope(session!.engagementIds);
   if (session!.role === 'CLIENT' && !scope.all && !scope.ids.includes(engagementId)) {
@@ -1222,6 +1364,8 @@ app.get('/api/engagements/:id/ops/console', async (c) => {
 app.get('/api/engagements/:id/ops/delivery', async (c) => {
   const { session, error } = requireSession(c);
   if (error) return respondError(c, error);
+  const operatorError = requireOperator(session!);
+  if (operatorError) return respondError(c, operatorError);
   const engagementId = c.req.param('id');
   const scope = parseScope(session!.engagementIds);
   if (session!.role === 'CLIENT' && !scope.all && !scope.ids.includes(engagementId)) {

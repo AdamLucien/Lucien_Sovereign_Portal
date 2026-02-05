@@ -36,7 +36,7 @@ export type ModuleInfo = {
 export type EngagementSummaryDTO = {
   id: string;
   status: 'ACTIVE' | 'PAUSED' | 'CLOSED';
-  tier: 'INTEL_ONLY' | 'BLUEPRINT' | 'CUSTOM' | null;
+  tier: 'DIAGNOSIS' | 'ARCHITECT' | 'SOVEREIGN' | null;
   startDate: string | null;
   modules: Record<ModuleKey, ModuleInfo>;
 };
@@ -304,6 +304,13 @@ export type OpsRequestsResponse = {
 
 export async function fetchOpsRequests(id: string) {
   return apiFetch<OpsRequestsResponse>(`/api/engagements/${id}/ops/requests`);
+}
+
+export async function postOpsRequestAccept(id: string, requestId: string) {
+  return apiFetch<{ ok: boolean; requestId: string; status: string }>(
+    `/api/engagements/${id}/ops/requests/${requestId}/accept`,
+    { method: 'POST' },
+  );
 }
 
 export type DeliveryStage = {

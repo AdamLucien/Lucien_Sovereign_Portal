@@ -16,7 +16,13 @@ const STATE_LABELS: Record<ModuleState, string> = {
   not_wired: 'NOT WIRED',
 };
 
-const resolveMessage = (state: ModuleState) => {
+const resolveMessage = (state: ModuleState, reason?: string | null) => {
+  if (reason === 'billing_required' || reason === 'payment_required') {
+    return 'PAYMENT REQUIRED TO UNLOCK';
+  }
+  if (reason === 'nda_required') {
+    return 'NDA SIGNATURE REQUIRED';
+  }
   if (state === 'locked') return 'NOT PROVISIONED FOR CURRENT TIER';
   if (state === 'not_wired') return 'NOT WIRED — BACKEND PENDING';
   return 'MODULE WIRED — BACKEND PENDING';
@@ -55,6 +61,7 @@ export default function ModulePlaceholder({ title, moduleKey }: ModulePlaceholde
   }
 
   const resolvedState = moduleState ?? 'not_wired';
+  const reason = summary?.modules?.[moduleKey]?.reason ?? null;
 
   return (
     <div className={`${surface.panel} p-8`}>
@@ -65,7 +72,7 @@ export default function ModulePlaceholder({ title, moduleKey }: ModulePlaceholde
           {STATE_LABELS[resolvedState]}
         </p>
         <p className={`mt-3 text-xs uppercase tracking-widest ${text.muted}`}>
-          {resolveMessage(resolvedState)}
+          {resolveMessage(resolvedState, reason)}
         </p>
       </div>
     </div>

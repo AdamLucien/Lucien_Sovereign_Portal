@@ -174,12 +174,6 @@ const PortalContext = createContext<PortalContextValue>({
 export const usePortalRole = () => useContext(PortalContext).role;
 export const usePortalContext = () => useContext(PortalContext);
 
-const resolvePath = (path: string, engagementId?: string | null) => {
-  if (!path.includes(':id')) return path;
-  if (!engagementId) return null;
-  return path.replace(':id', engagementId);
-};
-
 export default function PortalShell({ children }: PortalShellProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -364,12 +358,35 @@ export default function PortalShell({ children }: PortalShellProps) {
     outputs: 'not_wired',
     secureChannel: 'not_wired',
     contracts: 'action',
-    billing: 'not_wired',
+    billing: 'action',
     settlement: 'not_wired',
     opsConsole: 'not_wired',
     requestBuilder: 'not_wired',
     deliveryPipeline: 'not_wired',
     accessRoles: 'not_wired',
+  };
+
+  const resolvePath = (path: string, id?: string | null) => {
+    if (!path.includes(':id')) return path;
+    if (!id) return null;
+    return path.replace(':id', id);
+  };
+
+  const resolveModuleState = (item: NavItem) => {
+    if (!item.moduleKey) return item.fallbackState ?? 'active';
+    return (
+      summary?.modules?.[item.moduleKey]?.state ??
+      fallbackStates[item.moduleKey] ??
+      item.fallbackState ??
+      'locked'
+    );
+  };
+
+  const shouldShowItem = (item: NavItem) => {
+    if (role !== 'CLIENT') return true;
+    if (!item.moduleKey) return true;
+    const state = resolveModuleState(item);
+    return state !== 'locked' && state !== 'not_wired';
   };
 
   const resolveStateLabel = (state?: ModuleState | null) => {
@@ -393,7 +410,16 @@ export default function PortalShell({ children }: PortalShellProps) {
     }
   };
 
-  const navGroups = role === 'OPERATOR' ? operatorGroups : clientGroups;
+  const baseNavGroups = role === 'OPERATOR' ? operatorGroups : clientGroups;
+  const navGroups =
+    role === 'CLIENT'
+      ? baseNavGroups
+          .map((group) => ({
+            ...group,
+            items: group.items.filter(shouldShowItem),
+          }))
+          .filter((group) => group.items.length > 0)
+      : baseNavGroups;
   const hasMultipleEngagements = availableIds.length > 1;
   const showEngagementSelectPanel = !authLoading && !engagementId;
 
