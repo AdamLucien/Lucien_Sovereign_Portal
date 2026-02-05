@@ -1,5 +1,6 @@
 import { createInvite } from '../../../../lib/auth-store';
 import { sendInviteEmail } from '../../../../lib/email';
+import { isValidEngagementId, normalizeEngagementIds } from '../../../../lib/engagements';
 import { errorResponse } from '../../../../lib/errors';
 import { parseJsonBody } from '../../../../lib/request';
 import { jsonResponse } from '../../../../lib/response';
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
   const email = data?.email?.trim().toLowerCase() ?? '';
   const role = data?.role?.toUpperCase() ?? 'CLIENT';
   const engagementIds = Array.isArray(data?.engagementIds)
-    ? data!.engagementIds.map((value) => String(value).trim()).filter(Boolean)
+    ? normalizeEngagementIds(data!.engagementIds.map((value) => String(value)))
     : [];
 
   if (!email || email.length > MAX_EMAIL_LENGTH) {
@@ -53,6 +54,11 @@ export async function POST(request: Request) {
 
   if (engagementIds.length === 0) {
     return errorResponse(400, 'invalid_payload', 'engagementIds required.');
+  }
+
+  const invalidIds = engagementIds.filter((id) => id !== 'ALL' && !isValidEngagementId(id));
+  if (invalidIds.length) {
+    return errorResponse(400, 'invalid_payload', `Invalid engagementIds: ${invalidIds.join(', ')}`);
   }
 
   const inviteBaseUrl =
