@@ -2,6 +2,7 @@
   "name": "lucien-portal-api",
   "main": "src/index.ts",
   "compatibility_date": "2026-02-05",
+  "compatibility_flags": ["nodejs_compat"],
   "routes": [
     {
       "pattern": "portal.lucien.technology/api/*",
